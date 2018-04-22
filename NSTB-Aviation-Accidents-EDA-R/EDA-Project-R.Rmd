@@ -1,0 +1,55 @@
+---
+title: "EDA-Project-R"
+output: html_document
+---
+
+# NTSB Aviation Accident Database Exploration by Hamza Bendemra
+
+## Introduction
+This dataset was acquired from [Kaggle](https://www.kaggle.com/) and provides data from US [NTSB Aviation Accident Database](https://www.ntsb.gov/_layouts/ntsb.aviation/index.aspx). The clean dataset provided by Kaggle can be [found here](https://www.kaggle.com/khsamaha/aviation-accident-database-synopses). 
+
+### Libraries
+First, let's import the libraries of interested for this EDA.
+
+```{r}
+library(gridExtra)
+library(ggplot2)
+library(ggthemes)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(reshape2)
+library(GGally)
+library(scales)
+library(memisc)
+library(RColorBrewer)
+#theme_set(theme_minimal(10)) 
+```
+
+## Importing the native CSV file into a daframe
+Then, lets' import the dataset in an R dataframe 'pf', and have an initial look at it.
+
+```{r}
+pf <- read.csv('AviationData.csv')
+```
+
+
+
+## Plots and Analysis 
+In this section, I'll be generate plots and discussion in the results as part of an analysis. Firstly, we'll perform a univaritate exploration, then move to bivariate analysis, and finally perform multivariate analysis on the dataset.
+
+### Univariate Plots and Analysis
+
+### Bivariate Plots and Analysis
+
+### Multivariate Plots and Analysis
+
+## Final Plots and Summary
+In this section, I selected three plots from my analysis that show different trends worth noting.
+
+## Reflection
+In this section, I will reflect on the struggles, successes, and ideas for future exploration on the data set. 
+
+## Document your Data
+
+

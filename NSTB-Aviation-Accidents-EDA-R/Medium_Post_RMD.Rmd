@@ -1,0 +1,725 @@
+---
+title: "NTSB Aviation Accident Database Exploration"
+author: "Hamza Bendemra"
+output: github_document
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(gridExtra)
+library(datasets)
+library(ggplot2)
+library(ggthemes)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(reshape2)
+library(GGally)
+library(scales)
+library(memisc)
+library(RColorBrewer)
+library(scales)
+library(forcats)
+library(Hmisc)
+library(maps)
+library(mapproj)
+rm(list = ls()) # clear workspace
+# colours for the histograms
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+#colour <- "black"
+fill <- "#56B4E9"
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE)
+```
+
+## Introduction
+In this repo, I perform an Exploratory Data Analysis (EDA) on a Kaggle dataset.
+The dataset was sourced from The NTSB Aviation Accident Database which 
+contains information from 1962 and later about civil aviation accidents and 
+selected incidents within the United States and in international waters.
+
+* Method: Exploratory Data Analysis (EDA)
+* Program: R programming language, RStudio
+* Topic: Commercial Aviation
+* Sources: NTSB Aviation Accident Database
+
+This EDA does not aim to answer a particular question, but rather explore the
+data and get an initial look at relationships between the various variables
+present in our dataset.
+
+# Introduction
+Our dataset features 81,013 observations of 31 variables (shown below) which 
+are related to aviation accidents recorded. Variables provide information on a 
+variety of topics including date and location of observations, model and type of 
+aircraft, information on the sustained injuries to passengers and to the 
+aircraft, and the reported weather conditions at the time.
+
+```{r message=FALSE, warning=FALSE, Load_the_Data}
+pf <- read.csv('AviationData.csv') # Load the Data
+```
+
+```{r message=FALSE, warning=FALSE}
+dim(pf)
+```
+
+```{r message=FALSE, warning=FALSE}
+names(pf)
+```
+
+The variable types include factorial, numeric, and integer variables.
+
+```{r message=FALSE, warning=FALSE}
+str(pf)
+```
+
+# Data Wrangling
+Since this an NTSB database from the United States, it is highly likely 
+that the majority of the reported observations are from the US. Let's check 
+that by calculating the percentage of reported accidents in this database 
+from the United States.
+
+```{r message=FALSE, warning=FALSE}
+dim(subset(pf, Country == "United States")) / dim(pf)
+```
+
+As expected, the majority of accidents (over 94%) in this databased are from 
+the US. Hence, we will be focusing on the accidents that took place in the US 
+in this analysis.
+
+```{r message=FALSE, warning=FALSE}
+pf_us = subset(pf, Country == "United States")
+```
+
+As shown below, the new dataframe now features 76,188 observations.
+
+```{r message=FALSE, warning=FALSE}
+dim(pf_us)
+```
+
+Let's separate the listed location names (city, state) into two separate
+variables: one for the city and one for the state, for each observation.
+
+```{r}
+pf_us <- separate(pf_us, Location, c("City","State"), sep=",")
+```
+
+We will further tailor our dataframe for this analysis by focusing on a 
+specific number of variables of interest, out of the 31 available variables.
+
+Let's focus on: 
+(1) the date, 
+(2) the total fatal injuries, 
+(3) the engine type,
+(4) the weather condition,
+(5) the broad phase of flight,
+(6) Latitude, 
+(7) Longitude, 
+(8) City,
+(9) State.
+
+
+```{r message=FALSE, warning=FALSE}
+vars_wanted <- c("Event.Date", #1
+                 "Total.Fatal.Injuries", #2
+                 "Engine.Type", #3
+                 "Weather.Condition", #4
+                 "Broad.Phase.of.Flight", #5
+                 "Latitude", #6
+                 "Longitude", #7
+                 "City", #8
+                 "State",
+                 "Aircraft.Category"
+                 )
+pf_study <- pf_us[vars_wanted]
+```
+
+Let's check that our new dataframe 'pf_study' features all 5 variables.
+
+```{r message=FALSE, warning=FALSE}
+names(pf_study)
+```
+
+```{r message=FALSE, warning=FALSE}
+dim(pf_study)
+```
+
+As shown above, the dataframe we will be using for this study features 
+76,188 observations of 5 variables. Below is a summary of the dataframe.
+
+Looking at the summary output we can get a quick overview of the distribution 
+for each of our variables.
+
+```{r message=FALSE, warning=FALSE}
+summary(pf_study)
+```
+
+The variable related to the observation's event date will need some further 
+data wrangling to be able to extract meanigful information to draw conclusions 
+from. For instance, it would be useful to break the observation's event date 
+by day, month, and year to investigate if there are any correlations between 
+number of accidents/incidents and particular periods within a year.
+
+```{r message=FALSE, warning=FALSE}
+pf_study$Event.Date <- as.Date(pf_study$Event.Date)
+pf_study$Event.Year <- format(pf_study$Event.Date,"%Y")
+pf_study$Event.Year <- as.integer(pf_study$Event.Year)
+my_breaks = c(1940, 1950, 1960, 1970, 1980, 1990, 2000, 2010)
+pf_study$Event.Month <- format(pf_study$Event.Date,"%b")
+pf_study$Event.Month <- factor(pf_study$Event.Month, 
+                               levels = c("Jan", "Feb", "Mar", 
+                                          "Apr", "May", "Jun",
+                                          "Jul", "Aug", "Sep",
+                                          "Oct", "Nov", "Dec"))
+pf_study$Event.Weekday <- format(pf_study$Event.Date,"%a")
+pf_study$Event.Weekday <- factor(pf_study$Event.Weekday, 
+                                 levels = c("Mon", "Tue", "Wed", 
+                                            "Thu", "Fri", "Sat", "Sun"))
+```
+
+Also, looking at the Total Fatalities, we can see that the 3rd Qu. is 1.000,
+the Max is 265. Clearly, this distribution will be heavily skewed. There is 
+also some entries with missing data values for the Fatalities count.
+We will assume that those entries corresponds to no fatalities (i.e. 0).
+
+A better way of displaying this data is by grouping number of fatalities in 
+buckets, as shown below. This will give us a better reprsentation of the 
+distribution of fatalities across the observations in the dataset.
+
+```{r message=FALSE, warning=FALSE}
+pf_study$Total.Fatal.Injuries[which(is.na(pf_study$Total.Fatal.Injuries))] <- 0
+pf_study$Total.Fatal.Injuries[pf_study$Total.Fatal.Injuries==""] <- 0
+```
+
+```{r message=FALSE, warning=FALSE}
+pf_study$Total.Fatal.Injuries.Brackets <- pf_study$Total.Fatal.Injuries
+pf_study$Total.Fatal.Injuries.Brackets = cut(pf_study$Total.Fatal.Injuries.Brackets, 
+                                   breaks = c(0,1, 2, 4, 3, 5, 10, 20, 50, 
+                                              100, 150, 200, 250, 300),
+                                   right = FALSE,
+                                   include.lowest = TRUE)
+table(pf_study$Total.Fatal.Injuries.Brackets, useNA='ifany')
+```
+
+In terms of the weather conditions, let's replace blank entries in the weather 
+conditions with "unknown". Similarly, let's replace blank entries in the Phases of Flight with "unknown".
+
+```{r message=FALSE, warning=FALSE}
+pf_study$Weather.Condition <- as.character(pf_study$Weather.Condition)
+pf_study$Weather.Condition[is.na(pf_study$Weather.Condition)] <- "UNK"
+pf_study$Weather.Condition <- factor(pf_study$Weather.Condition, 
+                                     levels = c("VMC", "IMC", "UNK"))
+pf_study$Broad.Phase.of.Flight <- as.character(pf_study$Broad.Phase.of.Flight)
+pf_study$Broad.Phase.of.Flight[pf_study$Broad.Phase.of.Flight == ""] <- NA
+```
+
+Let's create dataframe for the maps we'll be creating later on.
+
+```{r}
+pf_study_map <- subset(pf_study, !is.na(Longitude))
+pf_study_map_Loc <- pf_study_map[
+  (duplicated(pf_study_map[c("Latitude","Longitude")]) |
+    duplicated(pf_study_map[c("Latitude","Longitude")], fromLast = TRUE)), ]
+
+pf_study_map_Loc <- subset(pf_study_map_Loc, !is.na(Longitude))
+pf_study_map_Loc$Coordinates<- paste(pf_study_map_Loc$Latitude, 
+                                     pf_study_map_Loc$Longitude,sep = "/")
+```
+
+# Univariate Plots Section
+In this section, we will create univariate plots for variables of interest. 
+
+## Event Date
+### By Year
+Now, let's plots frequency histograms for the year, month, and weekday of 
+accidents/incidents in the dataset.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Event.Year)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill, binwidth = 1) +
+  scale_x_continuous(name = "Year",
+                     breaks = seq(1900, 2100, 5)) +
+  scale_y_continuous(name = "Count") +
+  ggtitle("Year of Recorded Accident/Incident (1948-2017)")
+```
+
+It seems the majority of the observations in the dataframe are from after the 
+early 1980s onwards. Let's perform a quick check.
+
+```{r message=FALSE, warning=FALSE}
+summary(pf_study$Event.Year)
+```
+
+Let's generate a plot from 1980 to 2017.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Event.Year)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill, binwidth = 1) +
+  scale_x_continuous(name = "Year",
+                     limits = c(1982, 2018),
+                     breaks = seq(1982, 2018, 2)) +
+  scale_y_continuous(name = "Count", 
+                     limits = c(0, 3500),
+                     breaks = seq(0, 3500, 500)) +
+  ggtitle("Year of Recorded Accident/Incident (1982-2017)")
+```
+
+According to our plot, the number of accidents/incidents has substantially 
+decreseased between 1982 and 2017 from approx. 3400 observations to 
+approx. 1600 observations.
+
+### By Month of the Year
+Next, let's look at observations distribution by months of the year.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Event.Month)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill) +
+  scale_y_continuous(name = "Count") +
+  ggtitle("Month of Recorded Accident/Incident (1948-2017)")
+```
+
+According to our plot, the highest frequency of accidents/incidents in a given 
+year take place during northern hemisphere summer time (Jun-Jul-Aug).
+
+### By Day of the Week
+And finally, let's look at the observations distrubution by day of the week. 
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Event.Weekday)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill) +
+  scale_y_continuous(name = "Count") +
+  ggtitle("Weekday of Recorded Accident/Incident (1948-2017)")
+```
+
+According to our plot, the highest frequency of accidents/incidents in a given 
+week take place during the weekend (Sat-Sun).
+
+## Total Fatal Injuries
+Our next variable of interest relates to the Total Fatal Injuries for each 
+observation in the dataset. This is quantified by the number of people injured 
+for each recorded observation.
+
+```{r message=FALSE, warning=FALSE}
+grid.arrange(
+ggplot(pf_study, aes(x = Total.Fatal.Injuries)) +
+  geom_histogram(stat="count", alpha = 1,
+                 colour = barlines, fill = barfill) +
+  scale_y_log10(name = "Count (Log10)",labels = comma),
+
+ggplot(pf_study, aes(x = Total.Fatal.Injuries)) +
+  geom_line(stat="count", alpha = 1,
+                 colour = barlines) +
+  scale_y_log10(name = "Count (Log10)",labels = comma)  , nrow =1)
+```
+
+We can see that the majority of recorded accidents/incidents have a low number 
+of fatalities while some outliers are displaying large numbers of fatalities.
+
+Let's group the number of fatalities in buckets as shown in the plot below.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(data = subset(pf_study, !is.na(Total.Fatal.Injuries.Brackets)), 
+       aes(x = Total.Fatal.Injuries.Brackets)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill, binwidth = 1) +
+  scale_y_log10(name = "Count (Log10)",labels = comma) +
+  scale_x_discrete(labels = c('1','2','3', '4', '5', 
+                              '6-10', '11-20', '21-50', '51-100',
+                              '101-150', '151-200', '201-250', '251-300')) +
+  ggtitle("Number of Fatalities (1948-2017)")
+```
+
+As previously stated, the charts above show that the bulk of accidents 
+resulting in fatalities of less than 20.
+
+## Engine Types
+Next, we look at the engine types recorded in our observations. I've abbreviate
+engine type names to improve labelling of the x-axis. Note the use of the Log10
+scale for the y-axis in the plot below.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Engine.Type)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill) +
+  scale_y_log10(name = "Count (Log10)", labels = comma) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Engine Type in Observations (1948-2017)")
+```
+
+According to our charts, the bulk of engine types in the reported
+accidents/incidents are Reciprocal engine types.
+
+## Weather Conditions
+Next, we look at the weather conditions recorded in our observations. 
+FYI, VMC stands for visual meteorological conditions and IMC stands for 
+instrument meteorological conditions. VMC means that conditions are such that 
+pilots have sufficient visibility to fly the aircraft maintaining visual 
+separation from terrain and other aircraft. 
+IMC means weather conditions require pilots to fly primarily by reference to 
+instruments.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Weather.Condition)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill) +
+  scale_y_continuous(name = "Count", labels = comma) +
+  ggtitle("Weather Conditions of Accidents/Incidents (1948-2017)")
+```
+
+According to our plot, the bulk of accidents/incidents take place during 
+VMC weather conditions.
+
+## Broad Phases of Flight
+Next, we look at the weather conditions recorded in our observations.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Broad.Phase.of.Flight)) +
+  geom_histogram(stat="count", alpha = 0.5,
+                 colour = barlines, fill = barfill) +
+  scale_y_continuous(name = "Count", labels = comma) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Broad Phase of Flight of Observations (1982-2017)")
+```
+
+According to our plot, the bulk of accidents/incidents take place during 
+landing or take-off.
+
+# Bivariate Plots Section
+Let's look at the relationship between pairs of variables that could show
+interesting relationship. First a recap of available variables in our dataframe.
+
+```{r message=FALSE, warning=FALSE}
+names(pf_study)
+```
+
+## Engine Types and Total Fatal Injuries
+Let's look at the relationship of Engine Types and Total Fatal Injuries.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, aes(x = Engine.Type, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.3) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Total Fatal Injuries vs Engine Type (1948-2017)")
+```
+
+We can see that given that the bulk of the distribution has a total fatal 
+injuries under 10, let's zoom in on that portion of the data.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10), 
+       aes(x = Engine.Type, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  #scale_y_log10(labels = comma) +
+  ggtitle("Total Fatal Injuries (<10) vs Engine Type (1948-2017)")
+```
+
+According to the plot, the bulk of the data for fatalities under 20 is with the
+engine type Reciprocated. The first plot shows that the Tubo-Fan engine has
+more outliers with higher number of fatalities than other engins. This is likely
+due to the use of Turbo-Fan engines use on some large commercial aircraft.
+
+## Weather Conditions and Total Fatal Injuries
+Let's look at the relationship of Weather Conditions and Total Fatal Injuries.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Weather.Condition) & Weather.Condition != "UNK"), 
+       aes(x = Weather.Condition, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.3) +
+  ggtitle("Weather Conditions vs Weather Condition (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10 &
+                !is.na(Weather.Condition) & Weather.Condition != "UNK"), 
+       aes(x = Weather.Condition, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Total Fatal Injuries (<10) vs Weather Condition (1948-2017)")
+```
+
+Weather conditions do not show a particularly strong relationship with total
+fatal injuries. The bulk of the distribution is associate with VMC weather
+conditions. However, that is likely to the fact that the vast majority of 
+flights are flown in VMC conditions.
+
+## Phase of Flight and Total Fatal Injuries
+Let's look at the relationship of Phase of Flight and Total Fatal Injuries
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, 
+       aes(x = Broad.Phase.of.Flight, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Total Fatal Injuries vs Broad Phase of Flight (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10 & Broad.Phase.of.Flight!= "UNKNOWN"),  
+       aes(x = Broad.Phase.of.Flight, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Total Fatal Injuries (<10) vs Broad Phase of Flight (1948-2017)")
+```
+
+The plots show that Take-Off and Apprach are associated with outliers with 
+high number of fatalities. These two phases of flight are often referred to as
+"critical phases of flight" for that particular reason. They're high risk.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10 & Broad.Phase.of.Flight!= "UNKNOWN"),   
+       aes(x = Broad.Phase.of.Flight, y = Total.Fatal.Injuries)) +
+  geom_boxplot(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  ggtitle("Total Fatal Injuries (<10) vs Broad Phase of Flight (1948-2017)")
+```
+
+This boxplot further emphasises the presence of high outliers for take-off
+and approaches phases of flight. It also indicates that outliers are present
+for all broad phases of flight.
+
+## Event Date and Total Fatal Injuries
+Let's look at the relationship of Event Date and Total Fatal Injuries
+
+### By Month of the Year
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, 
+       aes(x = Event.Month, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  ggtitle("Total Fatal Injuries vs Event Month (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10),  
+       aes(x = Event.Month, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.2) +
+  ggtitle("Total Fatal Injuries (<10) vs Event Month (1948-2017)")
+```
+
+The distribution is fairly distributed across all months of the year.
+
+### By Day of the Week
+
+```{r message=FALSE, warning=FALSE}
+ggplot(pf_study, 
+       aes(x = Event.Weekday, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.3) +
+  ggtitle("Total Fatal Injuries vs Event Weekday (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 10),  
+       aes(x = Event.Weekday, y = Total.Fatal.Injuries)) +
+  geom_jitter(alpha = 0.3) +
+  ggtitle("Total Fatal Injuries (<10) vs Event Weekday (1948-2017)")
+```
+
+The distribution looks to be fairly distributed across all days of the week.
+
+## Broad Phase of Flight and Weather Conditions
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Weather.Condition) & !is.na(Broad.Phase.of.Flight)),
+       aes(x = Weather.Condition, y = Broad.Phase.of.Flight)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  #scale_y_log10(labels = comma) +
+  ggtitle("Broad Phase of Flight vs Weather Conditions (1948-2017)")
+```
+
+The relationship between weather condition and flight phase of recorded
+accidents/incidents was interesting. It seems there is higher frequency of 
+recorded observations for certain combinations of weather and what we could
+qualify higher risk phases of flight. For instance, IMC flying conditions while
+during "cruise" and the "approach".This is an interesting plot as it gives an 
+indication of which phases of flight to be particularly worried about given a 
+particular weather condition.
+
+## Broad Phase of Flight and Event Month
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Broad.Phase.of.Flight)),
+       aes(x = Event.Month, y = Broad.Phase.of.Flight)) +
+  geom_jitter(alpha = 0.2) +
+  scale_x_discrete(labels = abbreviate) +
+  #scale_y_log10(labels = comma) +
+  ggtitle("Broad Phase of Flight vs Event Month (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Broad.Phase.of.Flight)),
+       aes(x = Event.Month, y = Broad.Phase.of.Flight)) +
+  geom_bin2d(alpha = 1.0) +
+  ggtitle("Broad Phase of Flight vs Weather Conditions (1948-2017)")
+```
+
+The plot indicates that there is a higher frequency of recorded observations 
+for nothern summer months during Landing and Take-off. Across all months,
+the heat map also shows that the Take-off and Landing register the highest 
+number of observations.
+
+## Longitude and Latitude 
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Longitude) & !is.na(Latitude) 
+              & Latitude < 75 & Latitude > 10 & Longitude < -60),  
+       aes(y = Latitude, x = Longitude)) +
+  geom_point(shape=21, alpha = 0.2) +
+  scale_y_continuous(breaks = seq(-70,100,10)) +
+  scale_x_continuous(breaks = seq(-180,180,10)) +
+  ggtitle("Latitude vs Longitude (US-focused) (1948-2017)")
+```
+
+These plots are essently maps of the US and clearly shows that the coastal 
+states are more heavily impacted that the Mid-western states and most of Alaska. 
+This can be explained by the volume of flight to/from destinations across the 
+US. A sad chart however as it shows that the majority of US States suffered an 
+aviation tragedy between 1948 and 2017.
+
+# Multivariate Plots Section
+## Longitude and Latitude by Month
+First, let's look at Latitude vs Longitude of observations by Month of the Year.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Longitude) & !is.na(Latitude) 
+              & Latitude < 75 & Latitude > 10 & Longitude < -60),  
+       aes(y = Latitude, x = Longitude, fill = Event.Month)) +
+  geom_point(alpha = 0.3, shape = 21) +
+  scale_y_continuous(breaks = seq(-70,100,10)) +
+  scale_x_continuous(breaks = seq(-180,180,10)) +
+  ggtitle("Latitude vs Longitude (US-focused) by Month (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Longitude) & !is.na(Latitude) 
+              & Latitude < 75 & Latitude > 10 & Longitude < -60),  
+       aes(y = Latitude, x = Longitude, fill = Event.Month)) +
+  geom_point(alpha = 0.3, shape = 21) +
+  facet_wrap(~ Event.Month) +
+  scale_y_continuous(breaks = seq(-70,100,20)) +
+  scale_x_continuous(breaks = seq(-180,180,50)) +
+  ggtitle("Latitude vs Longitude (US-focused) by Month (1948-2017)")
+```
+
+The distribution of month across latitude and longitude is fairly spread across 
+the US, with a slightly higher prevalence of observations during the winter 
+in southern states like Florida.
+
+## Longitude and Latitude by Weather Conditions
+Let's now look at latitude vs longitude add layer for the weather condition.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Longitude) & !is.na(Latitude) 
+              & Latitude < 75 & Latitude > 10 & Longitude < -60
+              & Weather.Condition != "NA"),  
+       aes(y = Latitude, x = Longitude, fill = Weather.Condition)) +
+  geom_point(alpha = 0.3, shape = 21) +
+  facet_wrap(~ Weather.Condition, ncol = 2) +
+  scale_y_continuous(breaks = seq(-70,100,10)) +
+  scale_x_continuous(breaks = seq(-180,180,20)) +
+  ggtitle("Latitude vs Longitude (US-focused) by Month (1948-2017)")
+```
+
+Weather condition VMC seems to be quite consistent except for patches 
+of primarily IMC conditions for certain discrete areas.
+
+## Broad Phase of Flight and Event Month by Weather Conditions
+Let's now look at the relationship of Broad Phase of Flight vs Month by Weather
+Conditions.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, !is.na(Broad.Phase.of.Flight) 
+              & Weather.Condition != "NA" & Weather.Condition != "NA"),
+       aes(x = Event.Month, y = Broad.Phase.of.Flight, 
+           fill = Weather.Condition)) +
+  geom_jitter(shape=21, alpha = 0.3) +
+  facet_wrap(~ Weather.Condition, ncol = 2) +
+  scale_x_discrete(labels = abbreviate) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  +
+  ggtitle("Broad Phase of Flight vs Event Month (1948-2017)")
+```
+
+When looking at the relationship between Broad Phase of Flight vs Month and 
+Weather Condition, we can see that accident/incidents primarily take place 
+during VMC weather condition. However, for certain months of the year such as 
+December an January, IMC conditions are a non-negligible portion of the 
+observations, particularly during Approach and Cruise phases of flight.
+
+## Broad Phase of Flight and Event Month by Weather Conditions
+Next, let's look at Total Fatal Injuries vs Broad Phases of Flight by Weather
+Condition.
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 40),  
+       aes(x = Broad.Phase.of.Flight, y = Total.Fatal.Injuries, fill = Weather.Condition)) +
+  geom_jitter(shape=21, alpha = 0.3) +
+  scale_x_discrete(labels = abbreviate) +
+  scale_y_continuous(breaks = seq(0,40,5)) +
+  ggtitle("Total Fatal Injuries (<40) vs Broad Phase of Flight (1948-2017)")
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 40 
+              & Weather.Condition != "UNK" & Weather.Condition != "NA"),  
+       aes(x = Broad.Phase.of.Flight, y = Total.Fatal.Injuries, fill = Weather.Condition)) +
+  geom_jitter(shape=21, alpha = 0.3) +
+  facet_wrap(~ Weather.Condition) +
+  scale_x_discrete(labels = abbreviate) +
+  scale_y_continuous(breaks = seq(0,40,5)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  +
+  ggtitle("Total Fatal Injuries (<40) vs Broad Phase of Flight (1948-2017)")
+```
+
+In terms of the relationship between Total Fatal Injuries vs Broad Phases of 
+Flight and Weather Condition, the scatter plot clearly indicates that the total
+number of fatalies shows an increased number with IMC as weather condition and
+during Cruise and Approach phases of flight. Furthermore, we can see that in 
+general, low fatality count (less then 2) primarily took place in VMC weather
+conditions.
+
+## Total Fatal Injuries and Engine Type by Year
+Finally, let's look at the relationship between Total Fatal Injuries vs 
+Engine Type by Year. 
+
+```{r message=FALSE, warning=FALSE}
+ggplot(subset(pf_study, Total.Fatal.Injuries < 300),  
+       aes(y = Total.Fatal.Injuries.Brackets, x = Engine.Type, 
+           fill = Event.Year)) +
+  geom_jitter(shape = 21, alpha = 0.4) +
+  scale_x_discrete(labels = abbreviate) +
+  scale_y_discrete(labels = c('1','2','3', '4', '5', 
+                              '6-10', '11-20', '21-50', '51-100',
+                              '101-150', '151-200', '201-250', '251-300')) +
+  scale_fill_gradient(name = "count", trans = "log", 
+                      breaks = my_breaks, labels = my_breaks) +  
+  ggtitle("Total Fatal Injuriesvs Event Month (1948-2017)")
+```
+
+The relationship between Total Fatal Injuries vs Engine Type by Year is 
+interesting as it also how certain engines have become prevaent in different 
+time periods. For instance, Turbo-Jet and Turbo-Fan powered aircraft show a 
+higher number of fatalities in later years whereas Reciprocated engies show a 
+distribution of fatalities in earlier years.
+
+# Concluding Remarks
+
+During this EDA, I was particularly suprised by three aspects: 
+(1) the amount of time it took to read about and understand each variable to 
+make the best use of the given data;
+(2) the amount of computational power it took to process a dataset of a little 
+less then 80,000 observations - a small sample size in our day & age;
+(3) and finally how much data wrangling it took to prep the data despite the 
+fact that this is considered "clean data" after Kaggle already did the tidying.
+
+The info from such study on Aviation Accidents could potentially inform pilots 
+to pay particular attention for certain combination of weather conditions and 
+phases of flight.
+
+### Note
+This R Markdown file was created as part of a lesson in UDacity's [Data Analyst Nanodegree](https://ae.udacity.com/course/data-analyst-nanodegree--nd002). 
